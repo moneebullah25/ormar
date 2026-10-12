@@ -29,6 +29,11 @@
   row, and filters, `order_by()`, `values()` and default `orders_by` on such
   relations failed or produced cross joins.
   [#1837](https://github.com/ormar-orm/ormar/issues/1837)
+* Fix `add()` of an already linked child on a many-to-many relation inserting
+  a duplicate through row (it now updates the existing link with passed through
+  fields, if any), and `remove()` emptying the in-memory relation before the
+  through rows were deleted. `remove()` now deletes all matching through rows.
+  [#1821](https://github.com/ormar-orm/ormar/issues/1821)
 
 ## 0.26.0
 
