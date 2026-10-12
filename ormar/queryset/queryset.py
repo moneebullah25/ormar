@@ -885,8 +885,8 @@ class QuerySet(Generic[T]):
                 if action.related_parts:
                     raise QueryDefinitionError(
                         f"{operation}() does not support filters on related models "
-                        f"('{action.query_str}'). Filter on the relation itself "
-                        f"(e.g. category=<id>) or select the pks first and use pk__in."
+                        f"('{action.query_str}'). Select the pks first and "
+                        f"filter with pk__in instead."
                     )
 
     async def update(self, each: bool = False, **kwargs: Any) -> int:
