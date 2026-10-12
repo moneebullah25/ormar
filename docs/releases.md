@@ -20,6 +20,10 @@
   cleared (e.g. `person.friends.clear()` no longer touches `person.friend_of`),
   and the relation is emptied only after the delete succeeds
   — thanks @moneebullah25 [#1820](https://github.com/ormar-orm/ormar/issues/1820)
+* Fix `add()`, `remove()` and through model updates on the reverse side of a
+  self-referencing many-to-many relation storing the link in the wrong direction
+  (e.g. `member.followers.add(other)` added `other` to `member.follows`).
+  [#1836](https://github.com/ormar-orm/ormar/issues/1836)
 
 ## 0.26.0
 
