@@ -346,6 +346,8 @@ class RelationProxy(Generic[T], list[T]):
         Adds child model to relation.
 
         For ManyToMany relations through instance is automatically created.
+        For reverse ForeignKey relations child is inserted if it does not exist
+        in the database yet (also when its pk is already set), otherwise updated.
 
         :param kwargs: dict of additional keyword arguments for through instance
         :type kwargs: Any

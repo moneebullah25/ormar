@@ -10,6 +10,12 @@
   expressions for arbitrary functional indexes. On MySQL this needs 8.0.13+.
   [#615](https://github.com/collerek/ormar/issues/615)
 
+### 🐛 Fixes
+
+* Fix `add()` on a reverse ForeignKey relation silently not inserting a child
+  that already had a primary key set (a `uuid` pk with a default or an explicit
+  id on a non-autoincrement pk) — thanks @moneebullah25 [#1819](https://github.com/ormar-orm/ormar/issues/1819)
+
 ## 0.26.0
 
 ### ✨ Features
