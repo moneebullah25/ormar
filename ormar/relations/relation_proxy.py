@@ -346,6 +346,8 @@ class RelationProxy(Generic[T], list[T]):
         Adds child model to relation.
 
         For ManyToMany relations through instance is automatically created.
+        For reverse ForeignKey relations child is inserted if it does not exist
+        in the database yet (also when its pk is already set), otherwise updated.
 
         :param kwargs: dict of additional keyword arguments for through instance
         :type kwargs: Any
@@ -367,7 +369,7 @@ class RelationProxy(Generic[T], list[T]):
             setattr(self._owner, self.field_name, item)
         else:
             setattr(item, relation_name, self._owner)
-            await item.upsert()
+            await item.upsert(__force_save__=True)
         self._relation_cache[item.__hash__()] = new_idx
         await self._owner.signals.post_relation_add.send(
             sender=self._owner.__class__,

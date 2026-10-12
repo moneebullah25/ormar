@@ -12,11 +12,14 @@
 
 ### 🐛 Fixes
 
+* Fix `add()` on a reverse ForeignKey relation silently not inserting a child
+  that already had a primary key set (a `uuid` pk with a default or an explicit
+  id on a non-autoincrement pk) — thanks @moneebullah25 [#1819](https://github.com/ormar-orm/ormar/issues/1819)
 * Fix `clear()` on a self-referencing many-to-many relation deleting through
   rows by the wrong column. It now removes only the rows of the side being
   cleared (e.g. `person.friends.clear()` no longer touches `person.friend_of`),
-  and the relation is emptied only after the delete succeeds.
-  [#1820](https://github.com/collerek/ormar/issues/1820)
+  and the relation is emptied only after the delete succeeds
+  — thanks @moneebullah25 [#1820](https://github.com/ormar-orm/ormar/issues/1820)
 
 ## 0.26.0
 
