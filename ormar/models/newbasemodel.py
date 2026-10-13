@@ -787,7 +787,7 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
     @staticmethod
     def _resolve_field_descent(  # noqa: CFQ002
         field: str,
-        nested_model: Any,
+        nested_model: Union["Model", MutableSequence["Model"]],
         flatten_map: Optional[FlattenMap],
         relation_map: builtins.dict,
         include: Optional[builtins.dict],
@@ -805,8 +805,9 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
 
         :param field: relation field name being processed
         :type field: str
-        :param nested_model: value of the relation on the current instance
-        :type nested_model: Any
+        :param nested_model: value of the relation on the current instance,
+            null relations are handled by the caller
+        :type nested_model: Union[Model, MutableSequence[Model]]
         :param flatten_map: current flatten directive scope, or ``None``
         :type flatten_map: Optional[FlattenMap]
         :param relation_map: relation traversal map for the current scope
@@ -824,11 +825,14 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
             (flattened or skipped)
         :rtype: Optional[NestedDescent]
         """
-        is_sequence = isinstance(nested_model, MutableSequence)
-        if is_sequence and dump_options["exclude_list"]:
+        if isinstance(nested_model, MutableSequence) and dump_options["exclude_list"]:
             return None
         if flatten_map is not None and flatten_map.is_field_flattened(field):
-            value = [m.pk for m in nested_model] if is_sequence else nested_model.pk
+            value = (
+                [m.pk for m in nested_model]
+                if isinstance(nested_model, MutableSequence)
+                else nested_model.pk
+            )
             if dump_options["mode"] == "json":
                 value = to_jsonable_python(value)
             dict_instance[field] = value
