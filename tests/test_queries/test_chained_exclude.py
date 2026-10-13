@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pytest
 
 import ormar
@@ -14,6 +16,28 @@ class Item(ormar.Model):
     id: int = ormar.Integer(primary_key=True)
     name: str = ormar.String(max_length=50)
     kind: str = ormar.String(max_length=50)
+
+
+class City(ormar.Model):
+    ormar_config = base_ormar_config.copy(tablename="cities")
+
+    id: int = ormar.Integer(primary_key=True)
+    name: str = ormar.String(max_length=50)
+
+
+class Person(ormar.Model):
+    ormar_config = base_ormar_config.copy(tablename="people")
+
+    id: int = ormar.Integer(primary_key=True)
+    city: Optional[City] = ormar.ForeignKey(City)
+
+
+class Order(ormar.Model):
+    ormar_config = base_ormar_config.copy(tablename="orders")
+
+    id: int = ormar.Integer(primary_key=True)
+    zbuyer: Optional[Person] = ormar.ForeignKey(Person, related_name="bought")
+    aseller: Optional[Person] = ormar.ForeignKey(Person, related_name="sold")
 
 
 create_test_database = init_tests(base_ormar_config)
@@ -90,3 +114,63 @@ async def test_chained_exclude_with_groups_and_limit():
                 .all()
             )
             assert [item.name for item in items] == ["d"]
+
+
+@pytest.mark.asyncio
+async def test_exclude_after_filter_keeps_the_filter():
+    async with base_ormar_config.database:
+        async with base_ormar_config.database.transaction(force_rollback=True):
+            await create_items()
+
+            items = await Item.objects.filter(kind="x").exclude().all()
+            assert sorted(item.name for item in items) == ["a", "d"]
+
+
+async def create_orders():
+    x = await City.objects.create(name="X")
+    y = await City.objects.create(name="Y")
+    person_x = await Person.objects.create(city=x)
+    person_y = await Person.objects.create(city=y)
+    for order_id, buyer, seller in [
+        (1, person_x, person_x),
+        (2, person_x, person_y),
+        (3, person_y, person_x),
+        (4, person_y, person_y),
+    ]:
+        await Order.objects.create(id=order_id, zbuyer=buyer, aseller=seller)
+
+
+async def order_ids(queryset):
+    return sorted(order.id for order in await queryset.all())
+
+
+@pytest.mark.asyncio
+async def test_chained_clauses_on_paths_ending_at_the_same_tables():
+    async with base_ormar_config.database:
+        async with base_ormar_config.database.transaction(force_rollback=True):
+            await create_orders()
+
+            buyer_not_x = Order.objects.exclude(zbuyer__city__name="X")
+            seller_not_y = Order.objects.exclude(aseller__city__name="Y")
+            assert await order_ids(buyer_not_x.exclude(aseller__city__name="Y")) == [3]
+            assert await order_ids(seller_not_y.exclude(zbuyer__city__name="X")) == [3]
+            assert await order_ids(buyer_not_x.filter(aseller__city__name="X")) == [3]
+            assert await order_ids(
+                Order.objects.filter(zbuyer__city__name="Y").exclude(
+                    aseller__city__name="Y"
+                )
+            ) == [3]
+
+
+@pytest.mark.asyncio
+async def test_derived_queryset_does_not_change_its_source():
+    async with base_ormar_config.database:
+        async with base_ormar_config.database.transaction(force_rollback=True):
+            await create_orders()
+
+            buyer_x = Order.objects.filter(zbuyer__city__name="X")
+            buyer_not_x = Order.objects.exclude(zbuyer__city__name="X")
+            assert await order_ids(buyer_x.filter(aseller__city__name="Y")) == [2]
+            assert await order_ids(buyer_not_x.exclude(aseller__city__name="Y")) == [3]
+            assert await order_ids(buyer_x) == [1, 2]
+            assert await order_ids(buyer_not_x) == [3, 4]

@@ -343,19 +343,20 @@ class QuerySet(Generic[T]):
             )
             if not own_clauses and not filter_groups:
                 return self.rebuild_self(select_related=select_related)
+            # groups are already resolved, so own actions are attached directly
             exclude_group = FilterGroup(*filter_groups)
             exclude_group.actions = own_clauses
-            return self.rebuild_self(
-                exclude_clauses=self.exclude_clauses + [exclude_group],
-                select_related=select_related,
-            )
-        filter_clauses, select_related = qryclause.prepare_filter(**kwargs)
-        filter_clauses = filter_clauses + filter_groups  # type: ignore
-        exclude_clauses = self.exclude_clauses
+            filter_clauses = self.filter_clauses
+            exclude_clauses = self.exclude_clauses + [exclude_group]
+        else:
+            filter_clauses, select_related = qryclause.prepare_filter(**kwargs)
+            filter_clauses = filter_clauses + filter_groups  # type: ignore
+            exclude_clauses = self.exclude_clauses
 
+        # new joins can turn earlier clauses into complex duplicates
         return self.rebuild_self(
-            filter_clauses=filter_clauses,
-            exclude_clauses=exclude_clauses,
+            filter_clauses=qryclause.switch_filter_action_prefixes(filter_clauses),
+            exclude_clauses=qryclause.switch_filter_action_prefixes(exclude_clauses),
             select_related=select_related,
         )
 

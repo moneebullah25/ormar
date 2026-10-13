@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Generator, Optional, Union
@@ -252,12 +253,11 @@ class QueryClause:
             own_filter_clauses.append(filter_action)
 
         self._register_complex_duplicates(select_related)
-        filter_clauses = self._switch_filter_action_prefixes(
-            filter_clauses=filter_clauses + own_filter_clauses
-        )
+        own_filter_clauses = self.switch_filter_action_prefixes(own_filter_clauses)
         if _own_only:
             return own_filter_clauses, select_related
-        return filter_clauses, select_related
+        filter_clauses = self.switch_filter_action_prefixes(filter_clauses)
+        return filter_clauses + own_filter_clauses, select_related
 
     def _register_complex_duplicates(self, select_related: list[str]) -> None:
         """
@@ -316,28 +316,52 @@ class QueryClause:
             prefixes.append(prefix)
         return prefixes
 
-    def _switch_filter_action_prefixes(
-        self, filter_clauses: list[FilterAction]
-    ) -> list[FilterAction]:
+    def switch_filter_action_prefixes(self, filter_clauses: list) -> list:
         """
         Substitutes aliases for filter action if the complex key (whole relation str) is
         present in alias_manager.
 
-        :param filter_clauses: raw list of actions
-        :type filter_clauses: list[FilterAction]
-        :return: list of actions with aliases changed if needed
-        :rtype: list[FilterAction]
+        Actions are never changed in place, as they are shared with the querysets
+        that the current one was derived from - an action that needs a different
+        alias is copied, and so is every group that contains such an action.
+
+        :param filter_clauses: raw list of actions and groups
+        :type filter_clauses: list[Union[FilterAction, FilterGroup]]
+        :return: list of actions and groups with aliases changed if needed
+        :rtype: list[Union[FilterAction, FilterGroup]]
         """
+        return [
+            (
+                self._switch_group_prefixes(clause)
+                if isinstance(clause, FilterGroup)
+                else self._verify_prefix_and_switch(clause)
+            )
+            for clause in filter_clauses
+        ]
 
-        for action in filter_clauses:
-            if isinstance(action, FilterGroup):
-                for action2 in action._iter():
-                    self._verify_prefix_and_switch(action2)
-            else:
-                self._verify_prefix_and_switch(action)
-        return filter_clauses
+    def _switch_group_prefixes(self, group: FilterGroup) -> FilterGroup:
+        """
+        Switches prefixes of all actions in a group tree, copying the group only
+        if any of its actions or nested groups changed.
 
-    def _verify_prefix_and_switch(self, action: "FilterAction") -> None:
+        :param group: group to switch prefixes in
+        :type group: FilterGroup
+        :return: the same group or its copy with switched prefixes
+        :rtype: FilterGroup
+        """
+        nested_groups = [self._switch_group_prefixes(x) for x in group._nested_groups]
+        actions = [self._verify_prefix_and_switch(x) for x in group.actions]
+        unchanged = all(
+            x is y for x, y in zip(nested_groups, group._nested_groups)
+        ) and all(x is y for x, y in zip(actions, group.actions))
+        if unchanged:
+            return group
+        switched = copy.copy(group)
+        switched._nested_groups = nested_groups
+        switched.actions = actions
+        return switched
+
+    def _verify_prefix_and_switch(self, action: "FilterAction") -> "FilterAction":
         """
         Helper to switch prefix to complex relation one if required.
 
@@ -348,10 +372,18 @@ class QueryClause:
 
         :param action: action to switch prefix in
         :type action: ormar.queryset.actions.filter_action.FilterAction
+        :return: the same action or its copy with the complex prefix
+        :rtype: ormar.queryset.actions.filter_action.FilterAction
         """
         manager = self.model_cls.ormar_config.alias_manager
         alias_key = f"{self.model_cls.get_name()}_{action.related_str}"
-        if "__" in action.related_str and alias_key in self._complex_dup_keys:
-            action.table_prefix = manager.resolve_relation_alias(
-                self.model_cls, action.related_str
-            )
+        if "__" not in action.related_str or alias_key not in self._complex_dup_keys:
+            return action
+        table_prefix = manager.resolve_relation_alias(
+            self.model_cls, action.related_str
+        )
+        if table_prefix == action.table_prefix:
+            return action
+        switched = copy.copy(action)
+        switched.table_prefix = table_prefix
+        return switched
