@@ -45,7 +45,15 @@ class Owner(ormar.Model):
     ormar_config = base_ormar_config.copy(tablename="owners")
 
     id: int = ormar.Integer(primary_key=True)
+    data: Optional[dict] = ormar.JSON(nullable=True)
     tags: list[Tag] = ormar.ManyToMany(Tag, through=Link)
+
+
+class Shop(ormar.Model):
+    ormar_config = base_ormar_config.copy(tablename="shops")
+
+    id: int = ormar.Integer(primary_key=True)
+    owner: Optional[Owner] = ormar.ForeignKey(Owner, nullable=True)
 
 
 create_test_database = init_tests(base_ormar_config)
@@ -102,7 +110,7 @@ def test_nested_model_respects_exclude_defaults():
     assert pet.model_dump(exclude_defaults=True)["cat"] == {"id": 2, "note": "x"}
 
 
-def test_nested_list_respects_json_mode():
+def test_flattened_list_respects_json_mode():
     cat = Cat(id=2, pets=[Pet(id=1, cat=None)])
     assert cat.model_dump(mode="json", flatten_all=True)["pets"] == [1]
 
@@ -118,3 +126,35 @@ def test_through_model_respects_dump_options():
         "created": "2020-01-01T00:00:00",
         "label": "d",
     }
+
+
+def test_null_relation_respects_exclude_unset():
+    assert Pet(id=1).model_dump(exclude_unset=True) == {"id": 1}
+    assert Pet(id=1, cat=None).model_dump(exclude_unset=True) == {
+        "id": 1,
+        "cat": None,
+    }
+    assert Pet(id=1).model_dump(exclude_unset=True, flatten_all=True) == {"id": 1}
+
+
+def test_null_relation_respects_exclude_defaults():
+    assert Pet(id=1, cat=None).model_dump(exclude_defaults=True) == {"id": 1}
+    assert Pet(id=1, cat=Cat(id=2)).model_dump(exclude_defaults=True) == {
+        "id": 1,
+        "cat": {"id": 2},
+    }
+
+
+def test_nested_model_respects_exclude_list():
+    tag = Tag(id=1)
+    shop = Shop(id=1, owner=Owner(id=3, tags=[tag]))
+    assert shop.model_dump()["owner"]["tags"] == [{"id": 1}]
+    assert "tags" not in shop.model_dump(exclude_list=True)["owner"]
+
+
+def test_nested_model_respects_round_trip():
+    owner = Owner(id=3, data={"a": 1})
+    shop = Shop(id=1, owner=owner)
+    round_trip_data = shop.model_dump(round_trip=True)["owner"]["data"]
+    assert round_trip_data == owner.model_dump(round_trip=True)["data"]
+    assert round_trip_data != shop.model_dump()["owner"]["data"]

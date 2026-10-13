@@ -11,6 +11,7 @@ from typing import (
     Mapping,
     MutableSequence,
     Optional,
+    TypedDict,
     TypeVar,
     Union,
     cast,
@@ -74,6 +75,21 @@ class NestedDescent:
     relation_map: builtins.dict
     include: Union[set, builtins.dict, None]
     exclude: Union[set, builtins.dict, None]
+
+
+class DumpOptions(TypedDict):
+    """
+    ``model_dump`` options that apply to the whole tree, so they are forwarded
+    unchanged to every nested related and through model dump.
+    """
+
+    mode: str
+    by_alias: bool
+    exclude_unset: bool
+    exclude_defaults: bool
+    exclude_none: bool
+    exclude_list: bool
+    round_trip: bool
 
 
 class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass):
@@ -677,8 +693,8 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         exclude: Union[set, builtins.dict, None],
         exclude_primary_keys: bool,
         exclude_through_models: bool,
+        dump_options: DumpOptions,
         flatten_map: Optional[FlattenMap] = None,
-        dump_kwargs: Optional[builtins.dict] = None,
     ) -> list:
         """
         Converts list of models into list of dictionaries.
@@ -689,15 +705,13 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         :type include: Union[set, dict, None]
         :param exclude: fields to exclude
         :type exclude: Union[set, dict, None]
+        :param dump_options: model_dump options forwarded to nested dumps
+        :type dump_options: DumpOptions
         :param flatten_map: FlattenMap of relations to render as pk values
         :type flatten_map: Optional[FlattenMap]
-        :param dump_kwargs: pydantic options (mode, by_alias, exclude_unset,
-            exclude_defaults, exclude_none, round_trip) forwarded to nested dumps
-        :type dump_kwargs: Optional[dict]
         :return: list of models converted to dictionaries
         :rtype: list[dict]
         """
-        dump_kwargs = dump_kwargs or {}
         result = []
         for model in models:
             try:
@@ -708,7 +722,7 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
                     exclude_primary_keys=exclude_primary_keys,
                     exclude_through_models=exclude_through_models,
                     flatten_fields=flatten_map,
-                    **dump_kwargs,
+                    **dump_options,
                 )
                 if not exclude_through_models:
                     model.populate_through_models(
@@ -717,7 +731,7 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
                         include=include,
                         exclude=exclude,
                         relation_map=relation_map,
-                        dump_kwargs=dump_kwargs,
+                        dump_options=dump_options,
                     )
                 result.append(model_dict)
             except ReferenceError:  # pragma no cover
@@ -731,7 +745,7 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         include: Union[set, builtins.dict],
         exclude: Union[set, builtins.dict],
         relation_map: builtins.dict,
-        dump_kwargs: Optional[builtins.dict] = None,
+        dump_options: DumpOptions,
     ) -> None:
         """
         Populates through models with values from dict representation.
@@ -746,8 +760,8 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         :type exclude: dict
         :param relation_map: map of relations to follow to avoid circular refs
         :type relation_map: dict
-        :param dump_kwargs: pydantic options forwarded to the through model dump
-        :type dump_kwargs: Optional[dict]
+        :param dump_options: model_dump options forwarded to the through model dump
+        :type dump_options: DumpOptions
         :return: None
         :rtype: None
         """
@@ -767,7 +781,7 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
             through_instance = getattr(model, through_field.name)
             if through_instance:
                 model_dict[through_field.name] = through_instance.model_dump(
-                    **(dump_kwargs or {})
+                    **dump_options
                 )
 
     @staticmethod
@@ -775,12 +789,11 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         field: str,
         nested_model: Any,
         flatten_map: Optional[FlattenMap],
-        exclude_list: bool,
         relation_map: builtins.dict,
         include: Optional[builtins.dict],
         exclude: Optional[builtins.dict],
         dict_instance: builtins.dict,
-        dump_kwargs: Optional[builtins.dict] = None,
+        dump_options: DumpOptions,
     ) -> Optional[NestedDescent]:
         """
         Decide how to dump a related field. When the field is flattened, write
@@ -796,8 +809,6 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         :type nested_model: Any
         :param flatten_map: current flatten directive scope, or ``None``
         :type flatten_map: Optional[FlattenMap]
-        :param exclude_list: whether to skip list-valued relations entirely
-        :type exclude_list: bool
         :param relation_map: relation traversal map for the current scope
         :type relation_map: dict
         :param include: include selector for the current scope
@@ -806,25 +817,19 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         :type exclude: Optional[dict]
         :param dict_instance: dict being built for the current model
         :type dict_instance: dict
-        :param dump_kwargs: pydantic options; ``mode`` and ``exclude_none`` are
-            respected for flattened primary-key values
-        :type dump_kwargs: Optional[dict]
+        :param dump_options: model_dump options; ``exclude_list`` skips list
+            relations and ``mode`` is applied to flattened primary-key values
+        :type dump_options: DumpOptions
         :return: per-field locals, or ``None`` if the field was handled inline
             (flattened or skipped)
         :rtype: Optional[NestedDescent]
         """
         is_sequence = isinstance(nested_model, MutableSequence)
-        if is_sequence and exclude_list:
+        if is_sequence and dump_options["exclude_list"]:
             return None
         if flatten_map is not None and flatten_map.is_field_flattened(field):
-            dump_kwargs = dump_kwargs or {}
-            if is_sequence:
-                value: Any = [m.pk for m in nested_model]
-            else:
-                value = nested_model.pk if nested_model is not None else None
-            if value is None and dump_kwargs.get("exclude_none"):
-                return None
-            if dump_kwargs.get("mode") == "json":
+            value = [m.pk for m in nested_model] if is_sequence else nested_model.pk
+            if dump_options["mode"] == "json":
                 value = to_jsonable_python(value)
             dict_instance[field] = value
             return None
@@ -845,9 +850,8 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         exclude: Optional[builtins.dict],
         exclude_primary_keys: bool,
         exclude_through_models: bool,
-        exclude_list: bool,
+        dump_options: DumpOptions,
         flatten_map: Optional[FlattenMap] = None,
-        dump_kwargs: Optional[builtins.dict] = None,
     ) -> builtins.dict:
         """
         Traverse nested models and converts them into dictionaries.
@@ -861,17 +865,13 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
         :type include: Optional[dict]
         :param exclude: fields to exclude
         :type exclude: Optional[dict]
-        :param exclude_list: whether to exclude list-valued relations
-        :type exclude_list: bool
+        :param dump_options: model_dump options forwarded to nested dumps
+        :type dump_options: DumpOptions
         :param flatten_map: FlattenMap directing relations to render as pk values
         :type flatten_map: Optional[FlattenMap]
-        :param dump_kwargs: pydantic options (mode, by_alias, exclude_unset,
-            exclude_defaults, exclude_none, round_trip) forwarded to nested dumps
-        :type dump_kwargs: Optional[dict]
         :return: current model dict with child models converted to dictionaries
         :rtype: dict
         """
-        dump_kwargs = dump_kwargs or {}
         fields = filter_not_excluded_fields(
             fields=self.extract_related_names(), include=include, exclude=exclude
         )
@@ -881,16 +881,19 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
                 continue
             try:
                 nested_model = getattr(self, field)
+                if nested_model is None:
+                    if not self._is_null_relation_excluded(field, dump_options):
+                        dict_instance[field] = None
+                    continue
                 descent = self._resolve_field_descent(
                     field=field,
                     nested_model=nested_model,
                     flatten_map=flatten_map,
-                    exclude_list=exclude_list,
                     relation_map=relation_map,
                     include=include,
                     exclude=exclude,
                     dict_instance=dict_instance,
-                    dump_kwargs=dump_kwargs,
+                    dump_options=dump_options,
                 )
                 if descent is None:
                     continue
@@ -903,9 +906,9 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
                         exclude_primary_keys=exclude_primary_keys,
                         exclude_through_models=exclude_through_models,
                         flatten_map=descent.flatten_map,
-                        dump_kwargs=dump_kwargs,
+                        dump_options=dump_options,
                     )
-                elif nested_model is not None:
+                else:
                     model_dict = nested_model.model_dump(
                         relation_map=descent.relation_map,
                         include=descent.include,
@@ -913,7 +916,7 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
                         exclude_primary_keys=exclude_primary_keys,
                         exclude_through_models=exclude_through_models,
                         flatten_fields=descent.flatten_map,
-                        **dump_kwargs,
+                        **dump_options,
                     )
                     if not exclude_through_models:
                         nested_model.populate_through_models(
@@ -922,15 +925,34 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
                             include=descent.include,
                             exclude=descent.exclude,
                             relation_map=descent.relation_map,
-                            dump_kwargs=dump_kwargs,
+                            dump_options=dump_options,
                         )
                     dict_instance[field] = model_dict
-                elif not dump_kwargs.get("exclude_none"):
-                    dict_instance[field] = None
             except ReferenceError:  # pragma: no cover
-                if not dump_kwargs.get("exclude_none"):
+                if not self._is_null_relation_excluded(field, dump_options):
                     dict_instance[field] = None
         return dict_instance
+
+    def _is_null_relation_excluded(self, field: str, dump_options: DumpOptions) -> bool:
+        """
+        Check if a relation without a value should be left out of the dump.
+        Relation fields cannot declare a default, so a null relation always
+        equals its default and is excluded by ``exclude_none``,
+        ``exclude_defaults`` and, when it was never set explicitly,
+        by ``exclude_unset``.
+
+        :param field: name of the relation field
+        :type field: str
+        :param dump_options: model_dump options of the current dump
+        :type dump_options: DumpOptions
+        :return: True if the null relation should be skipped
+        :rtype: bool
+        """
+        return (
+            dump_options["exclude_none"]
+            or dump_options["exclude_defaults"]
+            or (dump_options["exclude_unset"] and field not in self.model_fields_set)
+        )
 
     @typing_extensions.deprecated(
         "The `dict` method is deprecated; use `model_dump` instead.",
@@ -1087,16 +1109,16 @@ class NewBaseModel(pydantic.BaseModel, ModelTableProxy, metaclass=ModelMetaclass
                 exclude=exclude_dict,
                 exclude_primary_keys=exclude_primary_keys,
                 exclude_through_models=exclude_through_models,
-                exclude_list=exclude_list,
                 flatten_map=flatten_map,
-                dump_kwargs={
-                    "mode": mode,
-                    "by_alias": by_alias,
-                    "exclude_unset": exclude_unset,
-                    "exclude_defaults": exclude_defaults,
-                    "exclude_none": exclude_none,
-                    "round_trip": round_trip,
-                },
+                dump_options=DumpOptions(
+                    mode=mode,
+                    by_alias=by_alias,
+                    exclude_unset=exclude_unset,
+                    exclude_defaults=exclude_defaults,
+                    exclude_none=exclude_none,
+                    exclude_list=exclude_list,
+                    round_trip=round_trip,
+                ),
             )
 
         return dict_instance
