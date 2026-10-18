@@ -55,10 +55,9 @@
 
 ### 🐛 Fixes
 
-* Defining an `Enum` field with `encrypt_backend` now raises `ModelDefinitionError`
-  instead of storing a value that could not be read back.
+* Raise `ModelDefinitionError` when an `Enum` field is defined with
+  `encrypt_backend`, instead of storing a value that could not be read back
   [#1855](https://github.com/ormar-orm/ormar/issues/1855)
-
 * Fix `get_pydantic()` cache being keyed by model class name, so same-named
   models from different modules could get each other's generated models.
 
