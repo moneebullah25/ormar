@@ -2,6 +2,7 @@
 import base64
 import datetime
 import decimal
+import enum
 import hashlib
 import uuid
 from typing import Any, Optional
@@ -155,6 +156,19 @@ def test_wrong_backend():
                 encrypt_backend=ormar.EncryptBackends.CUSTOM,
                 encrypt_custom_backend="aa",
             )
+
+
+def test_error_on_encrypted_enum():
+    class Color(enum.Enum):
+        RED = 1
+
+    with pytest.raises(ModelDefinitionError):
+
+        class Wrong4(ormar.Model):
+            ormar_config = base_ormar_config.copy(tablename="wrongs4")
+
+            id: int = ormar.Integer(primary_key=True)
+            color = ormar.Enum(enum_class=Color, **default_fernet)
 
 
 def test_db_structure():
