@@ -25,17 +25,18 @@ create_test_database = init_tests(base_ormar_config)
 @pytest.mark.asyncio
 async def test_bulk_update_keeps_none_in_nullable_uuid_fields():
     async with base_ormar_config.database:
-        first = await NullableUuid.objects.create(name="a")
-        first.name = "b"
-        await NullableUuid.objects.bulk_update([first], columns=["name"])
+        async with base_ormar_config.database.transaction(force_rollback=True):
+            first = await NullableUuid.objects.create(name="a")
+            first.name = "b"
+            await NullableUuid.objects.bulk_update([first], columns=["name"])
 
-        second = await NullableUuid.objects.create(
-            name="c", u_hex=uuid.uuid4(), u_str=uuid.uuid4()
-        )
-        second.u_str = None
-        await NullableUuid.objects.bulk_update([second])
+            second = await NullableUuid.objects.create(
+                name="c", u_hex=uuid.uuid4(), u_str=uuid.uuid4()
+            )
+            second.u_str = None
+            await NullableUuid.objects.bulk_update([second])
 
-        assert (await NullableUuid.objects.get(id=first.id)).name == "b"
-        loaded = await NullableUuid.objects.get(id=second.id)
-        assert loaded.u_hex == second.u_hex
-        assert loaded.u_str is None
+            assert (await NullableUuid.objects.get(id=first.id)).name == "b"
+            loaded = await NullableUuid.objects.get(id=second.id)
+            assert loaded.u_hex == second.u_hex
+            assert loaded.u_str is None
