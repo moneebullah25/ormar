@@ -1,4 +1,5 @@
 import asyncio
+from itertools import groupby
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1414,9 +1415,11 @@ class QuerySet(Generic[T]):
 
         # don't use execute_many, as in databases it's executed in a loop
         # instead of using execute_many from drivers
-        expr = self.table.insert().values(ready_objects)
+        # rows with different key sets (explicit vs omitted pk or server_default)
+        # cannot share one VALUES clause, so split into runs of identical keys
         async with self.model_config.database.get_query_executor() as executor:
-            await executor.execute(expr)
+            for _, run in groupby(ready_objects, key=lambda row: tuple(row)):
+                await executor.execute(self.table.insert().values(list(run)))
 
         for obj in objects:
             obj.set_save_status(True)
