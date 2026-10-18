@@ -1417,7 +1417,9 @@ class QuerySet(Generic[T]):
         # instead of using execute_many from drivers
         # rows with different key sets (explicit vs omitted pk or server_default)
         # cannot share one VALUES clause, so split into runs of identical keys
-        async with self.model_config.database.get_query_executor() as executor:
+        async with self.model_config.database.get_query_executor(
+            transactional=True
+        ) as executor:
             for _, run in groupby(ready_objects, key=lambda row: tuple(row)):
                 await executor.execute(self.table.insert().values(list(run)))
 
