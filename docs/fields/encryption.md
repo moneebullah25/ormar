@@ -33,7 +33,7 @@ class Filter(ormar.Model):
 ```
 
 !!!warning
-    You can encrypt all `Field` types apart from `primary_key` column and relation 
+    You can encrypt all `Field` types apart from `primary_key` column, `Enum` and relation 
     columns (`ForeignKey` and `ManyToMany`). Check backends details for more information.
 
 ## Available backends
@@ -100,7 +100,7 @@ year: int = ormar.Integer(encrypt_secret="secret123",
                           encrypt_backend=ormar.EncryptBackends.FERNET)
 ```
 
-Value is encrypted on way to database end decrypted on way out. Can be used on all types,
+Value is encrypted on way to database end decrypted on way out. Can be used on all types except `Enum`,
 as the returned value is parsed to corresponding python type.
 
 !!!warning

@@ -162,7 +162,7 @@ def test_error_on_encrypted_enum():
     class Color(enum.Enum):
         RED = 1
 
-    with pytest.raises(ModelDefinitionError):
+    with pytest.raises(ModelDefinitionError, match="Enum fields cannot be encrypted"):
 
         class Wrong4(ormar.Model):
             ormar_config = base_ormar_config.copy(tablename="wrongs4")
