@@ -21,6 +21,11 @@ default_fernet = dict(
 )
 
 
+class Color(enum.Enum):
+    RED = 1
+    BLUE = "blue"
+
+
 class DummyBackend(ormar.fields.EncryptBackend):
     def _initialize_backend(self, secret_key: bytes) -> None:
         pass
@@ -92,6 +97,13 @@ class Filter(ormar.Model):
     hash = ormar.ForeignKey(Hash)
 
 
+class Paint(ormar.Model):
+    ormar_config = base_ormar_config.copy(tablename="paints")
+
+    id: int = ormar.Integer(primary_key=True)
+    color = ormar.Enum(enum_class=Color, nullable=True, **default_fernet)
+
+
 class Report(ormar.Model):
     ormar_config = base_ormar_config.copy(tablename="reports")
 
@@ -156,19 +168,6 @@ def test_wrong_backend():
                 encrypt_backend=ormar.EncryptBackends.CUSTOM,
                 encrypt_custom_backend="aa",
             )
-
-
-def test_error_on_encrypted_enum():
-    class Color(enum.Enum):
-        RED = 1
-
-    with pytest.raises(ModelDefinitionError, match="Enum fields cannot be encrypted"):
-
-        class Wrong4(ormar.Model):
-            ormar_config = base_ormar_config.copy(tablename="wrongs4")
-
-            id: int = ormar.Integer(primary_key=True)
-            color = ormar.Enum(enum_class=Color, **default_fernet)
 
 
 def test_db_structure():
@@ -270,3 +269,19 @@ async def test_related_model_fields_properly_decrypted():
         report2 = await Report.objects.select_related("filters__hash").get()
         assert report2.filters[0].name == "test1"
         assert report2.filters[0].hash.name == hashed_test1
+
+
+@pytest.mark.asyncio
+async def test_encrypted_enum_round_trip():
+    async with base_ormar_config.database:
+        red = await Paint.objects.create(color=Color.RED)
+        empty = await Paint.objects.create(color=None)
+        assert (await Paint.objects.get(id=red.id)).color == Color.RED
+        assert (await Paint.objects.get(id=empty.id)).color is None
+
+        red.color = Color.BLUE
+        await red.update()
+        assert (await Paint.objects.get(id=red.id)).color == Color.BLUE
+
+        await Paint.objects.filter(id=red.id).update(color=Color.RED)
+        assert (await Paint.objects.get(id=red.id)).color == Color.RED

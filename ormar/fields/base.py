@@ -346,8 +346,6 @@ class BaseField(FieldInfo):  # type: ignore[misc]
             raise ModelDefinitionError(
                 "Primary key field and relations fields cannot be encrypted!"
             )
-        if isinstance(self.column_type, sqlalchemy.Enum):
-            raise ModelDefinitionError("Enum fields cannot be encrypted!")
         column: sqlalchemy.Column = sqlalchemy.Column(
             self.db_alias or name,
             EncryptedString(
