@@ -415,7 +415,7 @@ async def test_bulk_create_mixed_server_default_values():
             await Tag.objects.bulk_create(
                 [Tag(name="a"), Tag(name="b", note="q"), Tag(name="c")]
             )
-            tags = await Tag.objects.order_by("id").all()
+            tags = await Tag.objects.order_by("name").all()
             assert [(t.name, t.note) for t in tags] == [
                 ("a", "srv"),
                 ("b", "q"),
