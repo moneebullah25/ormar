@@ -1195,7 +1195,7 @@ class QuerySet(Generic[T]):
         if kwargs or args:
             return await self.filter(*args, **kwargs).get()
 
-        if not self.filter_clauses:
+        if not (self.filter_clauses or self.exclude_clauses):
             expr = self.build_select_expression(
                 limit=1,
                 order_bys=(
@@ -1507,9 +1507,6 @@ class QuerySet(Generic[T]):
                 if k != pk_column_name and k in table_columns
             }
         )
-        # databases bind params only where query is passed as string
-        # otherwise it just passes all data to values and results in unconsumed columns
-        expr = str(expr)  # type: ignore
         # Multi-row execute_many: run in an explicit transaction so all rows
         # share a single COMMIT instead of one per row under AUTOCOMMIT.
         async with self.model_config.database.get_query_executor(

@@ -1,3 +1,4 @@
+import uuid
 from enum import Enum
 from typing import Optional
 
@@ -123,6 +124,15 @@ class Tag(ormar.Model):
     )
 
 
+class NullableUuid(ormar.Model):
+    ormar_config = base_ormar_config.copy(tablename="nullable_uuids")
+
+    id: int = ormar.Integer(primary_key=True)
+    name: str = ormar.String(max_length=100)
+    u_hex: Optional[uuid.UUID] = ormar.UUID(nullable=True)
+    u_str: Optional[uuid.UUID] = ormar.UUID(nullable=True, uuid_format="string")
+
+
 create_test_database = init_tests(base_ormar_config)
 
 
@@ -180,6 +190,19 @@ async def test_delete_and_update():
             await Book.objects.delete(each=True)
             all_books = await Book.objects.all()
             assert len(all_books) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_after_exclude_checks_all_matches():
+    async with base_ormar_config.database:
+        for title in ["a", "b", "c"]:
+            await Book.objects.create(title=title, author="Anonymous")
+
+        with pytest.raises(ormar.exceptions.MultipleMatches):
+            await Book.objects.exclude(title="zzz").get()
+
+        book = await Book.objects.exclude(title__in=["a", "b"]).get()
+        assert book.title == "c"
 
 
 @pytest.mark.asyncio
@@ -613,6 +636,26 @@ async def test_bulk_operations_with_json():
                 )
             ]
             assert len(res) == 2
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_keeps_none_in_nullable_uuid_fields():
+    async with base_ormar_config.database:
+        async with base_ormar_config.database.transaction(force_rollback=True):
+            first = await NullableUuid.objects.create(name="a")
+            first.name = "b"
+            await NullableUuid.objects.bulk_update([first], columns=["name"])
+
+            second = await NullableUuid.objects.create(
+                name="c", u_hex=uuid.uuid4(), u_str=uuid.uuid4()
+            )
+            second.u_str = None
+            await NullableUuid.objects.bulk_update([second])
+
+            assert (await NullableUuid.objects.get(id=first.id)).name == "b"
+            loaded = await NullableUuid.objects.get(id=second.id)
+            assert loaded.u_hex == second.u_hex
+            assert loaded.u_str is None
 
 
 @pytest.mark.asyncio
